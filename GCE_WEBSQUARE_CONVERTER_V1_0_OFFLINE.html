@@ -1,0 +1,761 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>GCE WebSquare Converter V1.0</title>
+    <style>
+        :root {
+            --bg: #f4f7fb;
+            --panel: #ffffff;
+            --line: #d6e0ea;
+            --text: #18222d;
+            --muted: #68798b;
+            --navy: #173f67;
+            --blue: #25689a;
+        }
+
+        * {
+            box-sizing: border-box;
+        }
+
+        body {
+            margin: 0;
+            background: var(--bg);
+            color: var(--text);
+            font-family: Arial, "Noto Sans KR", sans-serif;
+        }
+
+        header {
+            padding: 18px 22px;
+            background: var(--navy);
+            color: #fff;
+        }
+
+        header h1 {
+            margin: 0;
+            font-size: 22px;
+        }
+
+        header p {
+            margin: 6px 0 0;
+            font-size: 13px;
+            opacity: 0.88;
+        }
+
+        .toolbar {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            padding: 12px 16px;
+            background: #fff;
+            border-bottom: 1px solid var(--line);
+        }
+
+        button,
+        .file-button {
+            padding: 9px 13px;
+            border: 1px solid #b8c8d6;
+            border-radius: 7px;
+            background: #fff;
+            color: #24435d;
+            font-weight: 700;
+            cursor: pointer;
+        }
+
+        button.primary {
+            background: var(--blue);
+            border-color: var(--blue);
+            color: #fff;
+        }
+
+        .file-button input {
+            display: none;
+        }
+
+        .workarea {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 12px;
+            padding: 14px 16px;
+        }
+
+        .panel {
+            overflow: hidden;
+            border: 1px solid var(--line);
+            border-radius: 9px;
+            background: var(--panel);
+        }
+
+        .panel-head {
+            padding: 12px 14px;
+            border-bottom: 1px solid var(--line);
+        }
+
+        .panel-head h2 {
+            margin: 0;
+            font-size: 15px;
+        }
+
+        .panel-head p {
+            margin: 5px 0 0;
+            color: var(--muted);
+            font-size: 12px;
+        }
+
+        textarea {
+            display: block;
+            width: 100%;
+            min-height: 650px;
+            padding: 14px;
+            border: 0;
+            outline: 0;
+            resize: vertical;
+            background: #fff;
+            font: 13px/1.55 Consolas, "Courier New", monospace;
+            tab-size: 4;
+            white-space: pre;
+        }
+
+        .status {
+            margin: 0 16px 16px;
+            padding: 11px 13px;
+            border: 1px solid var(--line);
+            border-radius: 8px;
+            background: #fff;
+            color: var(--muted);
+            font-size: 12px;
+            white-space: pre-wrap;
+        }
+
+        .status strong {
+            color: var(--text);
+        }
+
+        @media (max-width: 950px) {
+            .workarea {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
+</head>
+<body>
+    <header>
+        <h1>GCE WebSquare Converter V1.0</h1>
+        <p>HTML / JavaScript Source → WebSquare XML + CDATA + scwin.* 변환 전용</p>
+    </header>
+
+    <div class="toolbar">
+        <button class="primary" id="btnConvert">⇄ WebSquare 변환</button>
+        <button id="btnFormatSource">{} 입력 포맷팅</button>
+        <button id="btnFormatResult">{} 결과 포맷팅</button>
+        <button id="btnCopy">복사</button>
+        <button id="btnSave">↓ XML 저장</button>
+
+        <label class="file-button">
+            ↑ 소스 열기
+            <input id="fileInput" type="file" accept=".html,.htm,.js,.txt,.xml" />
+        </label>
+
+        <button id="btnSample">샘플</button>
+        <button id="btnClear">초기화</button>
+    </div>
+
+    <main class="workarea">
+        <section class="panel">
+            <div class="panel-head">
+                <h2>원본 HTML / JavaScript</h2>
+                <p>HTML 전체 또는 JavaScript만 붙여넣을 수 있습니다.</p>
+            </div>
+            <textarea id="sourceEditor" spellcheck="false"></textarea>
+        </section>
+
+        <section class="panel">
+            <div class="panel-head">
+                <h2>WebSquare 변환 결과</h2>
+                <p>WebSquare XML / CDATA / scwin.* 구조로 변환됩니다.</p>
+            </div>
+            <textarea id="resultEditor" spellcheck="false"></textarea>
+        </section>
+    </main>
+
+    <div id="statusBox" class="status">
+        <strong>READY</strong> · 변환할 소스를 입력하세요.
+    </div>
+
+    <script>
+        (function () {
+            "use strict";
+
+            function byId(id) {
+                return document.getElementById(id);
+            }
+
+            function setStatus(title, message) {
+                byId("statusBox").innerHTML =
+                    "<strong>" + title + "</strong> · " + message;
+            }
+
+            function escapeRegExp(text) {
+                return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+            }
+
+            function extractScriptBlocks(source) {
+                var blocks = [];
+                var openTag = "<script";
+                var closeTag = "<" + "/script>";
+                var lower = source.toLowerCase();
+                var cursor = 0;
+
+                while (true) {
+                    var start = lower.indexOf(openTag, cursor);
+
+                    if (start < 0) {
+                        break;
+                    }
+
+                    var openEnd = source.indexOf(">", start);
+
+                    if (openEnd < 0) {
+                        break;
+                    }
+
+                    var end = lower.indexOf(closeTag, openEnd + 1);
+
+                    if (end < 0) {
+                        break;
+                    }
+
+                    blocks.push(source.slice(openEnd + 1, end));
+                    cursor = end + closeTag.length;
+                }
+
+                return blocks;
+            }
+
+            function removeScriptBlocks(source) {
+                var openTag = "<script";
+                var closeTag = "<" + "/script>";
+                var lower = source.toLowerCase();
+                var out = "";
+                var cursor = 0;
+
+                while (true) {
+                    var start = lower.indexOf(openTag, cursor);
+
+                    if (start < 0) {
+                        out += source.slice(cursor);
+                        break;
+                    }
+
+                    out += source.slice(cursor, start);
+
+                    var openEnd = source.indexOf(">", start);
+                    if (openEnd < 0) {
+                        break;
+                    }
+
+                    var end = lower.indexOf(closeTag, openEnd + 1);
+                    if (end < 0) {
+                        break;
+                    }
+
+                    cursor = end + closeTag.length;
+                }
+
+                return out;
+            }
+
+            function extractBody(source) {
+                var bodyOpen = /<body\b[^>]*>/i.exec(source);
+
+                if (!bodyOpen) {
+                    return removeScriptBlocks(source).trim();
+                }
+
+                var start = bodyOpen.index + bodyOpen[0].length;
+                var closeTag = "<" + "/body>";
+                var lower = source.toLowerCase();
+                var end = lower.lastIndexOf(closeTag);
+
+                if (end < 0) {
+                    end = source.length;
+                }
+
+                return removeScriptBlocks(source.slice(start, end)).trim();
+            }
+
+            function isHtmlSource(source) {
+                return /<!doctype|<html\b|<body\b|<head\b|<div\b|<button\b|<input\b|<form\b/i.test(source);
+            }
+
+            function convertJavaScript(js, report) {
+                var output = js
+                    .replace(/<!\[CDATA\[/g, "")
+                    .replace(/\]\]>/g, "")
+                    .trim();
+
+                var names = [];
+
+                output = output.replace(
+                    /window\.onload\s*=\s*function\s*\(([^)]*)\)\s*\{/g,
+                    function (_, args) {
+                        report.push("window.onload(function) → scwin.onpageload");
+                        return "scwin.onpageload = function(" + args + ") {";
+                    }
+                );
+
+                output = output.replace(
+                    /window\.onload\s*=\s*([A-Za-z_$][\w$]*)\s*;/g,
+                    function (_, name) {
+                        report.push("window.onload = " + name + " → scwin.onpageload");
+                        return [
+                            "scwin.onpageload = function() {",
+                            "    scwin." + name + "();",
+                            "};"
+                        ].join("\n");
+                    }
+                );
+
+                output = output.replace(
+                    /(^|\n)([ \t]*)function\s+([A-Za-z_$][\w$]*)\s*\(([^)]*)\)\s*\{/g,
+                    function (_, prefix, spaces, name, args) {
+                        if (
+                            name.indexOf("SetOZParamters_") === 0 ||
+                            name.indexOf("OZ") === 0
+                        ) {
+                            report.push("OZ Callback 유지: " + name);
+                            return prefix + spaces + "function " + name + "(" + args + ") {";
+                        }
+
+                        names.push(name);
+                        report.push("function " + name + " → scwin." + name);
+                        return prefix + spaces + "scwin." + name + " = function(" + args + ") {";
+                    }
+                );
+
+                names.forEach(function (name) {
+                    var escaped = escapeRegExp(name);
+                    var callPattern = new RegExp(
+                        "(^|[^A-Za-z0-9_$\\.])" + escaped + "\\s*\\(",
+                        "g"
+                    );
+
+                    output = output.replace(
+                        callPattern,
+                        function (_, prefix) {
+                            return prefix + "scwin." + name + "(";
+                        }
+                    );
+                });
+
+                if (!/scwin\.onpageload\s*=/.test(output)) {
+                    output += [
+                        "",
+                        "",
+                        "scwin.onpageload = function() {",
+                        "    // TODO: WebSquare 화면 초기화",
+                        "};"
+                    ].join("\n");
+
+                    report.push("scwin.onpageload 기본 함수 생성");
+                }
+
+                return formatJavaScript(output);
+            }
+
+            function convertInlineEvents(body, report) {
+                var output = body;
+
+                output = output.replace(
+                    /onclick\s*=\s*"([A-Za-z_$][\w$]*)\s*\(\s*\)\s*"/gi,
+                    function (_, name) {
+                        report.push("onclick=\"" + name + "()\" → ev:onclick=\"scwin." + name + "\"");
+                        return 'ev:onclick="scwin.' + name + '"';
+                    }
+                );
+
+                output = output.replace(
+                    /onclick\s*=\s*'([A-Za-z_$][\w$]*)\s*\(\s*\)\s*'/gi,
+                    function (_, name) {
+                        report.push("onclick='" + name + "()' → ev:onclick=\"scwin." + name + "\"");
+                        return 'ev:onclick="scwin.' + name + '"';
+                    }
+                );
+
+                return output;
+            }
+
+            function formatJavaScript(code) {
+                var protectedValues = [];
+
+                function protect(match) {
+                    var token = "__GCE_LITERAL_" + protectedValues.length + "__";
+                    protectedValues.push(match);
+                    return token;
+                }
+
+                var safe = code.replace(
+                    /("(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|`(?:\\.|[^`\\])*`)/g,
+                    protect
+                );
+
+                safe = safe
+                    .replace(/\r/g, "")
+                    .replace(/[ \t]+\n/g, "\n")
+                    .replace(/\{\s*/g, "{\n")
+                    .replace(/\}\s*/g, "\n}\n")
+                    .replace(/;\s*/g, ";\n")
+                    .replace(/\n{3,}/g, "\n\n");
+
+                var indent = 0;
+                var lines = safe.split("\n");
+                var result = [];
+
+                lines.forEach(function (line) {
+                    var text = line.trim();
+
+                    if (!text) {
+                        if (result.length && result[result.length - 1] !== "") {
+                            result.push("");
+                        }
+                        return;
+                    }
+
+                    if (text.charAt(0) === "}") {
+                        indent = Math.max(0, indent - 1);
+                    }
+
+                    result.push("    ".repeat(indent) + text);
+
+                    if (text.endsWith("{")) {
+                        indent += 1;
+                    }
+                });
+
+                var formatted = result.join("\n");
+
+                protectedValues.forEach(function (value, index) {
+                    formatted = formatted.replace(
+                        "__GCE_LITERAL_" + index + "__",
+                        value
+                    );
+                });
+
+                return formatted.trim();
+            }
+
+            function formatMarkup(markup) {
+                var protectedBlocks = [];
+                var cdataStart = "<![CDATA[";
+                var cdataEnd = "]]>";
+
+                var safe = markup;
+                var cdataPos = safe.indexOf(cdataStart);
+
+                if (cdataPos >= 0) {
+                    var cdataClose = safe.indexOf(cdataEnd, cdataPos);
+
+                    if (cdataClose >= 0) {
+                        var block = safe.slice(cdataPos, cdataClose + cdataEnd.length);
+                        protectedBlocks.push(block);
+                        safe = safe.slice(0, cdataPos) +
+                            "__GCE_CDATA_0__" +
+                            safe.slice(cdataClose + cdataEnd.length);
+                    }
+                }
+
+                safe = safe.replace(/>\s*</g, ">\n<");
+
+                var lines = safe.split("\n");
+                var indent = 0;
+                var output = [];
+                var voidTags = /^(area|base|br|col|embed|hr|img|input|link|meta|param|source|track|wbr)$/i;
+
+                lines.forEach(function (raw) {
+                    var text = raw.trim();
+
+                    if (!text) {
+                        return;
+                    }
+
+                    var closeMatch = text.match(/^<\/([A-Za-z0-9:_-]+)>/);
+
+                    if (closeMatch) {
+                        indent = Math.max(0, indent - 1);
+                    }
+
+                    if (text === "__GCE_CDATA_0__") {
+                        var block = protectedBlocks[0];
+                        block.split("\n").forEach(function (line) {
+                            output.push("    ".repeat(indent) + line.trimEnd());
+                        });
+                        return;
+                    }
+
+                    output.push("    ".repeat(indent) + text);
+
+                    var openMatch = text.match(/^<([A-Za-z0-9:_-]+)(?:\s|>|\/)/);
+
+                    if (
+                        openMatch &&
+                        !closeMatch &&
+                        !voidTags.test(openMatch[1]) &&
+                        !/\/>$/.test(text) &&
+                        !new RegExp("</" + escapeRegExp(openMatch[1]) + ">$", "i").test(text) &&
+                        !/^<!/.test(text)
+                    ) {
+                        indent += 1;
+                    }
+                });
+
+                return output.join("\n");
+            }
+
+            function buildWebSquareXml(body, js) {
+                var indentedJs = js.split("\n").map(function (line) {
+                    return "        " + line;
+                }).join("\n");
+
+                var indentedBody = body.split("\n").map(function (line) {
+                    return "    " + line;
+                }).join("\n");
+
+                var closeScript = "<" + "/script>";
+
+                return [
+                    "<?xml version=\"1.0\" encoding=\"UTF-8\"?>",
+                    "<html",
+                    "    xmlns=\"http://www.w3.org/1999/xhtml\"",
+                    "    xmlns:ev=\"http://www.w3.org/2001/xml-events\"",
+                    "    xmlns:w2=\"http://www.inswave.com/websquare\"",
+                    "    xmlns:xf=\"http://www.w3.org/2002/xforms\">",
+                    "",
+                    "<head>",
+                    "    <script type=\"text/javascript\">",
+                    "    <![CDATA[",
+                    "",
+                    indentedJs,
+                    "",
+                    "    ]]>",
+                    "    " + closeScript,
+                    "</head>",
+                    "",
+                    "<body ev:onpageload=\"scwin.onpageload\">",
+                    indentedBody,
+                    "</body>",
+                    "</html>"
+                ].join("\n");
+            }
+
+            function convert() {
+                var source = byId("sourceEditor").value.trim();
+
+                if (!source) {
+                    alert("변환할 소스를 입력하세요.");
+                    return;
+                }
+
+                var report = [];
+                var scripts;
+                var body;
+
+                if (isHtmlSource(source)) {
+                    scripts = extractScriptBlocks(source);
+                    body = extractBody(source);
+
+                    if (!scripts.length) {
+                        scripts = [""];
+                    }
+                } else {
+                    scripts = [source];
+                    body = '<div id="app"></div>';
+                }
+
+                body = convertInlineEvents(body, report);
+
+                var convertedJs = convertJavaScript(
+                    scripts.join("\n\n"),
+                    report
+                );
+
+                var result = buildWebSquareXml(
+                    formatMarkup(body),
+                    convertedJs
+                );
+
+                byId("resultEditor").value = result;
+
+                setStatus(
+                    "CONVERTED",
+                    report.length
+                        ? report.join(" / ")
+                        : "WebSquare XML 변환 완료"
+                );
+            }
+
+            function formatSource() {
+                var source = byId("sourceEditor").value;
+
+                if (!source.trim()) {
+                    return;
+                }
+
+                if (isHtmlSource(source)) {
+                    var scripts = extractScriptBlocks(source);
+                    var body = extractBody(source);
+                    var formattedBody = formatMarkup(body);
+
+                    if (scripts.length) {
+                        setStatus(
+                            "FORMAT",
+                            "HTML 본문은 정리했습니다. 변환 시 JavaScript도 자동 정리됩니다."
+                        );
+                    }
+
+                    byId("sourceEditor").value = source;
+                } else {
+                    byId("sourceEditor").value = formatJavaScript(source);
+                    setStatus("FORMAT", "JavaScript 입력 포맷팅 완료");
+                }
+            }
+
+            function formatResult() {
+                var result = byId("resultEditor").value;
+
+                if (!result.trim()) {
+                    return;
+                }
+
+                byId("resultEditor").value = result;
+                setStatus(
+                    "FORMAT",
+                    "변환 결과는 생성 단계에서 자동 포맷팅됩니다."
+                );
+            }
+
+            function copyResult() {
+                var result = byId("resultEditor").value;
+
+                if (!result.trim()) {
+                    alert("복사할 변환 결과가 없습니다.");
+                    return;
+                }
+
+                if (navigator.clipboard && window.isSecureContext) {
+                    navigator.clipboard.writeText(result).then(function () {
+                        setStatus("COPIED", "클립보드에 복사했습니다.");
+                    });
+                    return;
+                }
+
+                byId("resultEditor").select();
+
+                try {
+                    document.execCommand("copy");
+                    setStatus("COPIED", "클립보드에 복사했습니다.");
+                } catch (error) {
+                    setStatus("COPY", "Ctrl+C로 직접 복사해주세요.");
+                }
+            }
+
+            function saveResult() {
+                var result = byId("resultEditor").value;
+
+                if (!result.trim()) {
+                    alert("저장할 변환 결과가 없습니다.");
+                    return;
+                }
+
+                var blob = new Blob(
+                    [result],
+                    { type: "application/xml;charset=utf-8" }
+                );
+
+                var url = URL.createObjectURL(blob);
+                var link = document.createElement("a");
+
+                link.href = url;
+                link.download = "converted_websquare.xml";
+                document.body.appendChild(link);
+                link.click();
+                link.remove();
+
+                setTimeout(function () {
+                    URL.revokeObjectURL(url);
+                }, 1000);
+
+                setStatus("SAVED", "converted_websquare.xml 저장 요청 완료");
+            }
+
+            function loadSample() {
+                var closeScript = "<" + "/script>";
+
+                byId("sourceEditor").value = [
+                    "<!DOCTYPE html>",
+                    "<html lang=\"ko\">",
+                    "<head>",
+                    "    <meta charset=\"UTF-8\" />",
+                    "    <title>Sample</title>",
+                    "</head>",
+                    "<body>",
+                    "    <button onclick=\"openReport()\">보고서 열기</button>",
+                    "    <div id=\"OZViewer\"></div>",
+                    "",
+                    "    <script>",
+                    "        function openReport() {",
+                    "            setOZParameter();",
+                    "        }",
+                    "",
+                    "        function setOZParameter() {",
+                    "            var oz = document.getElementById(\"OZViewer\");",
+                    "            console.log(\"OZ parameter set\");",
+                    "        }",
+                    "",
+                    "        window.onload = function() {",
+                    "            console.log(\"HTML loaded\");",
+                    "        };",
+                    "    " + closeScript,
+                    "</body>",
+                    "</html>"
+                ].join("\n");
+
+                setStatus("SAMPLE", "샘플을 불러왔습니다. WebSquare 변환을 눌러보세요.");
+            }
+
+            function clearAll() {
+                byId("sourceEditor").value = "";
+                byId("resultEditor").value = "";
+                setStatus("READY", "초기화했습니다.");
+            }
+
+            byId("btnConvert").addEventListener("click", convert);
+            byId("btnFormatSource").addEventListener("click", formatSource);
+            byId("btnFormatResult").addEventListener("click", formatResult);
+            byId("btnCopy").addEventListener("click", copyResult);
+            byId("btnSave").addEventListener("click", saveResult);
+            byId("btnSample").addEventListener("click", loadSample);
+            byId("btnClear").addEventListener("click", clearAll);
+
+            byId("fileInput").addEventListener("change", function (event) {
+                var file = event.target.files[0];
+
+                if (!file) {
+                    return;
+                }
+
+                var reader = new FileReader();
+
+                reader.onload = function () {
+                    byId("sourceEditor").value = reader.result;
+                    setStatus("LOADED", file.name + " 파일을 불러왔습니다.");
+                };
+
+                reader.readAsText(file, "UTF-8");
+            });
+
+            loadSample();
+        })();
+    </script>
+</body>
+</html>
