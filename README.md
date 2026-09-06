@@ -9,5 +9,6 @@ HTML -> WEBSQUARE 전환 프로그램
 ## OZ_Report_WebSquare_FE_Developer_Guide.xlsx
 oz parameter 관련 엑셀 자료
 
-## 
+## OZ_PARAMETER_REFERENCE_V1_1_FIXED.zip
+oz parameter 검색해서 쓸수 있는 html 보유
 
