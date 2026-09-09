@@ -1,0 +1,223 @@
+class RemoteFaxUtilCfg {
+
+    public String getRemoteAgentOutput(HttpServletRequest request) throws Exception {
+
+        // ... 상단 일부 사진에서 확인 불가
+
+        int xmlDataCnt =
+            ((Double)xUtil.getNodeNumber(
+                doc,
+                "count(" + mrdExpression + ")"
+            )).intValue();
+
+        int xmlParamsCnt =
+            ((Double)xUtil.getNodeNumber(
+                doc,
+                "count(" + paramsExpression + ")"
+            )).intValue();
+
+        int xmlPathCnt =
+            ((Double)xUtil.getNodeNumber(
+                doc,
+                "count(" + pathExpression + ")"
+            )).intValue();
+
+
+        String mrdData = "";
+        String mrdParams = "";
+        String mrdPath = "";
+
+
+        // 멀티 리포트(AppendReport) 일 경우
+        if (xmlDataCnt == xmlParamsCnt && xmlDataCnt == xmlPathCnt) {
+
+            for (int i = 1; i <= xmlDataCnt; i++) {
+
+                // mrdData 추출
+                mrdData += xmlHeader
+                        + xUtil.getNodeListToString(
+                            doc,
+                            mrdExpression + "[" + i + "]"
+                          )
+                        + xmlTail;
+
+
+                // mrdParams
+                mrdParams += xUtil.getNodeText(
+                    doc,
+                    paramsExpression + "[" + i + "]/text()"
+                );
+
+                // mrdParams += " /rdata [" + mrdData + "] ";
+
+
+                // mrdPath
+                mrdPath += xUtil.getNodeText(
+                    doc,
+                    pathExpression + "[" + i + "]/text()"
+                );
+
+
+                // AppendReport(다수의 리포트) 일 경우 구분자 처리
+                if (i != xmlDataCnt) {
+
+                    mrdData += separator;
+                    mrdParams += separator;
+                    mrdPath += separator;
+                }
+            }
+        }
+
+
+        String rdonIP =
+            xUtil.getNodeText(
+                doc,
+                "/root/data/ip[1]/text()"
+            );
+
+        String rdonPort =
+            xUtil.getNodeText(
+                doc,
+                "/root/data/port[1]/text()"
+            );
+
+        String userid =
+            xUtil.getNodeText(
+                doc,
+                "/root/data/id[1]/text()"
+            );
+
+        String rcv_fax_no =
+            xUtil.getNodeText(
+                doc,
+                "/root/data/rcv_fax_no[1]/text()"
+            );
+
+
+        // userid 값이 없을경우 대내채널 header 에서 사용자 ID 가져옴
+        if (userid == null || userid.equals("")) {
+
+            userid = xUtil.getNodeText(
+                doc,
+                "/root/header/userid[1]/text()"
+            );
+        }
+
+
+        if ("DEBUG".equals(logMode)) {
+
+            System.out.println(
+                "[" + dt + "] faxno:" + rcv_fax_no
+            );
+
+            System.out.println(
+                "faxRdUrl:" + faxRdUrl
+            );
+        }
+
+
+        /*
+        System.out.println(
+            doc.getElementsByTagName("grid").getLength()
+        );
+
+        System.out.println(
+            doc.getElementsByTagName("grid").item(0).toString()
+        );
+
+        System.out.println(
+            "mrdParams:" + mrdParams
+        );
+        */
+
+
+        // ReportingServerInvoker invoker =
+        //     new ReportingServerInvoker(
+        //         "http://" + reportingServerIP + ...
+        //     );
+
+        ReportingServerInvoker invoker =
+            new ReportingServerInvoker(faxRdUrl);
+
+
+        invoker.setCharacterEncoding("euc-kr");
+
+        invoker.setReconnectionCount(2);
+
+        invoker.setConnectTimeout(3);
+
+        invoker.setReadTimeout(20);
+
+
+        invoker.addParameter(
+            "opcode",
+            "500"
+        );
+
+        invoker.addParameter(
+            "mrd_path",
+            mrdPath
+        );
+
+        invoker.addParameter(
+            "mrd_param",
+            mrdParams
+        );
+
+        invoker.addParameter(
+            "mrd_data",
+            mrdData
+        );
+
+        invoker.addParameter(
+            "export_type",
+            "tif"
+        );
+
+        invoker.addParameter(
+            "fax_reserved2",
+            "1"
+        );
+
+        // invoker.addParameter("protocol", "async");
+
+        invoker.addParameter(
+            "rcv_fax_no",
+            rcv_fax_no
+        );
+
+        invoker.addParameter(
+            "userid",
+            userid
+        );
+
+        invoker.addParameter(
+            "client_type",
+            channelUid
+        );
+
+        invoker.addParameter(
+            "GID",
+            gid
+        );
+
+        invoker.addParameter(
+            "tfid",
+            tfid
+        );
+
+
+        invoker.invoke();
+
+    } else {
+
+        rValue =
+            "0| count(mrddata) != count(mrdparams) != count(mrdpath)";
+    }
+
+} catch (Exception e) {
+
+    e.printStackTrace();
+
+    rValue = e.getMessage();
+}
